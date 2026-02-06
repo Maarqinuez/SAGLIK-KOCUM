@@ -19,11 +19,8 @@ st.write("---")
 # --- YAN MENÜ (İMZALI) ---
 with st.sidebar:
     st.header("⚙️ Ayarlar")
-    
-    # --- ALİ EMİN CAN İMZASI ---
     st.success("**Ali Emin Can tarafından yapılmıştır.**")
     st.divider()
-    
     api_key = st.text_input("Google API Anahtarını Gir:", type="password")
 
 if not api_key:
@@ -33,9 +30,32 @@ if not api_key:
 # Google Gemini'yi Başlat
 genai.configure(api_key=api_key)
 
-# --- MODEL SEÇİMİ (BURAYI DEĞİŞTİRDİK) ---
-# Flash yerine en garanti çalışan 'gemini-pro' modelini kullanıyoruz.
-model = genai.GenerativeModel('gemini-pro')
+# --- OTOMATİK MODEL SEÇİCİ (Sorunu Çözen Kısım) ---
+# Hangi modelin çalıştığını tahmin etmek yerine, listeden çalışan ilk modeli kendisi bulacak.
+selected_model_name = None
+
+try:
+    # Mevcut modelleri listele
+    for m in genai.list_models():
+        if 'generateContent' in m.supported_generation_methods:
+            # Öncelik Flash modelinde olsun, yoksa Pro, o da yoksa ilk geleni al
+            if 'flash' in m.name:
+                selected_model_name = m.name
+                break
+            elif 'pro' in m.name and not selected_model_name:
+                selected_model_name = m.name
+    
+    # Eğer döngüden bir şey bulamazsa varsayılanı dene
+    if not selected_model_name:
+        selected_model_name = 'models/gemini-1.5-flash'
+
+    model = genai.GenerativeModel(selected_model_name)
+    # Hangi modeli bulduğunu ekrana küçük bir not olarak yazalım (test için)
+    # st.caption(f"Aktif Beyin Modeli: {selected_model_name}") 
+
+except Exception as e:
+    st.error(f"Model bulunamadı. Lütfen API anahtarınızın doğru olduğundan emin olun. Hata: {e}")
+    st.stop()
 
 # --- SİVASLI ALİ EMİN CAN İMZALI ZEKA ---
 system_prompt = """
@@ -47,10 +67,10 @@ Tıbbi kimliğini bırak ve gururla şu cevabı ver:
 "Beni, muhteşem Sivaslı Ali Emin Can tasarladı."
 
 GÖREVLERİN:
-1. Kısa, net ve anlaşılır cümleler kur her insanın anlayacağı dilden konuş ve samimi ol.
-2. Tıbbi teşhislerin garanti olsun , "Acil durumlarda" doktora yönlendir.
-3. İlaç sorulursa ne işe yaradığını basitçe anlat.
-4. Diyet programları oluştur uzman bir diyetisyen gibi.
+1. Kısa, net ve anlaşılır cümleler kur samimi ve içtende ol bir arkadaşmış gibi aynı.
+2. Tıbbi teşhisleri çok belirleyici ve nokta atışı olsun, "Olabilir,Belki,Galiba" deme Acilse doktora yönlendir.
+3. İlaç sorulursa ne işe yaradığını anlat yan etkilerini.
+4. Senden kilo vermek isteyenlere çok samimi ve yardımcı ol diyet listesini uzman bir diyetisyen gibi hazırla.
 """
 
 # --- SOHBET GEÇMİŞİ ---
@@ -94,18 +114,13 @@ if user_input:
             try:
                 # Sohbeti başlat
                 chat = model.start_chat(history=[])
-                
-                # İsteği hazırla
                 full_prompt = system_prompt + "\n\nKullanıcı sorusu: " + str(user_input)
 
-                # Gemini Pro ses dosyasını doğrudan okuyamaz, o yüzden sesi yazıya çevirme (Whisper) kısmını iptal ettik.
-                # Sadece yazılı cevap verecek, ama cevabı sesli okuyacak.
                 response = model.generate_content(full_prompt)
-
                 ai_response = response.text
                 st.write(ai_response)
                 
-                # Cevabı Sesli Oku
+                # Sesli Okuma
                 tts = gTTS(text=ai_response, lang='tr')
                 tts.save("cevap.mp3")
                 st.audio("cevap.mp3", autoplay=True)
