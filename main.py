@@ -22,7 +22,6 @@ st.markdown("""
         padding: 10px;
         margin-bottom: 5px;
     }
-    /* Mikrofonu sabitle */
     .stAudioInput {
         position: fixed;
         bottom: 80px;
@@ -67,15 +66,14 @@ async def speak_text(text):
         communicate = edge_tts.Communicate(text, "tr-TR-NesrinNeural")
         await communicate.save(filename)
         return filename
-    except:
-        return None
+    except Exception as e:
+        return f"HATA: {e}"
 
 # --- HAFIZA VE SAYAÇ ---
 if "messages" not in st.session_state:
     st.session_state.messages = []
     st.session_state.messages.append({"role": "assistant", "content": "Selam! Ben Sağlık Koçun. Neyin var, anlat bakalım?", "audio": None})
 
-# MİKROFONU SIFIRLAMAK İÇİN SAYAÇ
 if "audio_counter" not in st.session_state:
     st.session_state.audio_counter = 0
 
@@ -83,13 +81,11 @@ if "audio_counter" not in st.session_state:
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.write(msg["content"])
-        if "audio" in msg and msg["audio"]:
+        if "audio" in msg and msg["audio"] and "HATA" not in msg["audio"]:
             st.audio(msg["audio"], format='audio/mp3')
 
 # --- GİRİŞ ALANI ---
 chat_input = st.chat_input("Buraya yazın...")
-
-# Mikrofon (Sayacı key olarak veriyoruz ki her seferinde sıfırlansın)
 audio_value = st.audio_input("🎤 Bas-Konuş", key=f"mic_{st.session_state.audio_counter}")
 
 # Veriyi Yakala
@@ -108,19 +104,17 @@ elif audio_value:
 
 # --- CEVAP MEKANİZMASI ---
 if user_input_text:
-    # 1. Kullanıcı mesajını ekle
     st.session_state.messages.append({"role": "user", "content": user_input_text})
     with st.chat_message("user"):
         st.write(user_input_text)
 
-    # 2. Asistan Cevabı
     with st.chat_message("assistant"):
         message_placeholder = st.empty()
         with st.spinner("..."):
             ai_response = ""
             audio_file = None
             
-            # --- TRY BLOGU: HATA YAKALAMA BURADA ---
+            # 1. ADIM: YAPAY ZEKA CEVABI (Burada hata varsa göreceğiz)
             try:
                 system_instruction = """
                 Sen 'SAĞLIK KOÇUM'sun. 
@@ -143,23 +137,31 @@ if user_input_text:
                 ai_response = response.text
                 message_placeholder.write(ai_response)
                 
-                # Sesi oluştur
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                audio_file = loop.run_until_complete(speak_text(ai_response))
-                
-                if audio_file:
-                    st.audio(audio_file, format='audio/mp3', autoplay=True)
-
-                # Hafızaya kaydet
-                st.session_state.messages.append({"role": "assistant", "content": ai_response, "audio": audio_file})
-
             except Exception as e:
-                st.error("Bir bağlantı sorunu var, tekrar dener misin?")
-            
-            # --- RERUN (YENİLEME) GÜVENLİ BÖLGE ---
-            # Try-except bittikten sonra burası çalışır. Hata vermez.
+                st.error(f"YAPAY ZEKA HATASI: {e}")
+                ai_response = None # Cevap yoksa sesi deneme
+
+            # 2. ADIM: SES OLUŞTURMA (Ses hatası varsa onu da göreceğiz)
+            if ai_response:
+                try:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    audio_result = loop.run_until_complete(speak_text(ai_response))
+                    
+                    if audio_result and "HATA" in audio_result:
+                        st.warning(f"Ses oluşturulamadı: {audio_result}")
+                    elif audio_result:
+                        audio_file = audio_result
+                        st.audio(audio_file, format='audio/mp3', autoplay=True)
+
+                    st.session_state.messages.append({"role": "assistant", "content": ai_response, "audio": audio_file})
+                
+                except Exception as e:
+                    st.warning(f"SES SİSTEMİ HATASI: {e}")
+                    st.session_state.messages.append({"role": "assistant", "content": ai_response, "audio": None})
+
+            # 3. ADIM: YENİLEME
             if input_type == "audio":
-                time.sleep(1) # Sesin gitmesi için minik bir bekleme
+                time.sleep(1)
                 st.session_state.audio_counter += 1
                 st.rerun()
