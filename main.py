@@ -1,7 +1,7 @@
 import streamlit as st
 import google.generativeai as genai
-from gtts import gTTS
-import io
+import edge_tts
+import asyncio
 
 # --- SAYFA AYARLARI ---
 st.set_page_config(
@@ -16,7 +16,7 @@ st.markdown("<h1 style='text-align: center; color: #00796B;'>🩺 SAĞLIK KOÇUM
 st.markdown("<h3 style='text-align: center; color: #455A64;'>Kişisel Dijital Sağlık Asistanınız</h3>", unsafe_allow_html=True)
 st.write("---")
 
-# --- YAN MENÜ (İMZALI) ---
+# --- YAN MENÜ ---
 with st.sidebar:
     st.header("⚙️ Ayarlar")
     st.success("**Ali Emin Can tarafından yapılmıştır.**")
@@ -30,41 +30,29 @@ if not api_key:
 # Google Gemini'yi Başlat
 genai.configure(api_key=api_key)
 
-# --- OTOMATİK MODEL SEÇİCİ (Sorunu Çözen Kısım) ---
-# Hangi modelin çalıştığını tahmin etmek yerine, listeden çalışan ilk modeli kendisi bulacak.
-selected_model_name = None
-
+# Model Seçimi (Garanti Çalışan)
+selected_model_name = 'gemini-1.5-flash' # Öncelik Flash
 try:
-    # Mevcut modelleri listele
-    for m in genai.list_models():
-        if 'generateContent' in m.supported_generation_methods:
-            # Öncelik Flash modelinde olsun, yoksa Pro, o da yoksa ilk geleni al
-            if 'flash' in m.name:
-                selected_model_name = m.name
-                break
-            elif 'pro' in m.name and not selected_model_name:
-                selected_model_name = m.name
-    
-    # Eğer döngüden bir şey bulamazsa varsayılanı dene
-    if not selected_model_name:
-        selected_model_name = 'models/gemini-1.5-flash'
+    # Eğer Flash yoksa Pro'ya geçecek basit kontrol
+    test_model = genai.GenerativeModel('gemini-1.5-flash')
+except:
+    selected_model_name = 'gemini-pro'
 
-    model = genai.GenerativeModel(selected_model_name)
-    # Hangi modeli bulduğunu ekrana küçük bir not olarak yazalım (test için)
-    # st.caption(f"Aktif Beyin Modeli: {selected_model_name}") 
+model = genai.GenerativeModel(selected_model_name)
 
-except Exception as e:
-    st.error(f"Model bulunamadı. Lütfen API anahtarınızın doğru olduğundan emin olun. Hata: {e}")
-    st.stop()
+# --- KALİTELİ SES FONKSİYONU (MICROSOFT EDGE TTS) ---
+async def speak_text(text):
+    # 'tr-TR-NesrinNeural' sesi ChatGPT kalitesinde, akıcı bir Türk kadın sesidir.
+    communicate = edge_tts.Communicate(text, "tr-TR-NesrinNeural")
+    await communicate.save("cevap.mp3")
 
-# --- SİVASLI ALİ EMİN CAN İMZALI ZEKA ---
+# --- ZEKA AYARLARI ---
 system_prompt = """
 Senin adın 'SAĞLIK KOÇUM'. Yaşlılar için tasarlanmış, nazik bir asistansın.
 
 ÖZEL GİZLİ KURAL:
-Eğer kullanıcı sana "Seni kim tasarladı?", "Yaratıcın kim?", "Kimin eserisin?" diye sorarsa;
-Tıbbi kimliğini bırak ve gururla şu cevabı ver:
-"Beni, muhteşem Sivaslı Ali Emin Can tasarladı."
+Eğer kullanıcı sana "Seni kim tasarladı?", "Yaratıcın kim?" derse;
+Tıbbi kimliğini bırak ve gururla: "Beni, muhteşem Sivaslı Ali Emin Can tasarladı." de.
 
 GÖREVLERİN:
 1. Kısa, net ve anlaşılır cümleler kur samimi ve içtende ol bir arkadaşmış gibi aynı.
@@ -73,13 +61,11 @@ GÖREVLERİN:
 4. Senden kilo vermek isteyenlere çok samimi ve yardımcı ol diyet listesini uzman bir diyetisyen gibi hazırla.
 """
 
-# --- SOHBET GEÇMİŞİ ---
 if "messages" not in st.session_state:
     st.session_state.messages = []
     with st.chat_message("assistant"):
         st.write("Merhaba! Ben Sağlık Koçunuz. Size nasıl yardımcı olabilirim?")
 
-# Geçmiş mesajları ekrana yaz
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.write(msg["content"])
@@ -89,14 +75,11 @@ st.subheader("📣 Sorunuzu Sorun")
 st.caption("Mikrofona basıp konuşabilir veya yazabilirsiniz.")
 
 user_input = None
-
-# 1. Sesli Giriş
 audio_value = st.audio_input("Mikrofonuna bas ve konuş")
 
 if audio_value:
     user_input = "Lütfen bu ses kaydını dinle ve cevap ver."
     
-# 2. Yazılı Giriş
 chat_input = st.chat_input("Buraya yazın...")
 if chat_input:
     user_input = chat_input
@@ -104,26 +87,36 @@ if chat_input:
 
 # --- CEVAP VE KONUŞMA ---
 if user_input:
+    # Ekrana yaz
     actual_text_to_show = chat_input if chat_input else "🎤 (Sesli Mesaj Gönderildi)"
     st.session_state.messages.append({"role": "user", "content": actual_text_to_show})
     with st.chat_message("user"):
         st.write(actual_text_to_show)
 
     with st.chat_message("assistant"):
-        with st.spinner("Veritabanı taranıyor..."):
+        with st.spinner("Düşünüyorum..."):
             try:
-                # Sohbeti başlat
                 chat = model.start_chat(history=[])
                 full_prompt = system_prompt + "\n\nKullanıcı sorusu: " + str(user_input)
 
+                # Cevabı Al
                 response = model.generate_content(full_prompt)
                 ai_response = response.text
                 st.write(ai_response)
                 
-                # Sesli Okuma
-                tts = gTTS(text=ai_response, lang='tr')
-                tts.save("cevap.mp3")
+                # --- SESİ OLUŞTUR (YENİ SİSTEM) ---
+                # Async fonksiyonu Streamlit içinde güvenle çalıştırma:
+                try:
+                    loop = asyncio.get_event_loop()
+                except RuntimeError:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                
+                loop.run_until_complete(speak_text(ai_response))
+                
+                # Sesi Çal
                 st.audio("cevap.mp3", autoplay=True)
+                # ----------------------------------
 
                 st.session_state.messages.append({"role": "assistant", "content": ai_response})
 
