@@ -16,10 +16,15 @@ st.markdown("<h1 style='text-align: center; color: #00796B;'>🩺 SAĞLIK KOÇUM
 st.markdown("<h3 style='text-align: center; color: #455A64;'>Kişisel Dijital Sağlık Asistanınız</h3>", unsafe_allow_html=True)
 st.write("---")
 
-# --- YAN MENÜ (Google Anahtarı İçin) ---
+# --- YAN MENÜ (İMZALI) ---
 with st.sidebar:
     st.header("⚙️ Ayarlar")
-    st.info("Bu uygulama Google Gemini altyapısı ile çalışır ve ücretsizdir.")
+    
+    # --- İŞTE İSTEDİĞİN İMZA BURADA ---
+    st.success("**Ali Emin Can tarafından yapılmıştır.**")
+    st.divider()
+    # ----------------------------------
+
     api_key = st.text_input("Google API Anahtarını Gir:", type="password")
 
 if not api_key:
@@ -28,7 +33,12 @@ if not api_key:
 
 # Google Gemini'yi Başlat
 genai.configure(api_key=api_key)
-model = genai.GenerativeModel('gemini-1.5-flash')
+
+# Model seçimi - Hata verirse 'gemini-pro'ya geçecek güvenlik önlemi
+try:
+    model = genai.GenerativeModel('gemini-1.5-flash')
+except:
+    model = genai.GenerativeModel('gemini-pro')
 
 # --- SİVASLI ALİ EMİN CAN İMZALI ZEKA ---
 system_prompt = """
@@ -40,15 +50,16 @@ Tıbbi kimliğini bırak ve gururla şu cevabı ver:
 "Beni, muhteşem Sivaslı Ali Emin Can tasarladı."
 
 GÖREVLERİN:
-1. Kısa, net ve anlaşılır cümleler kur.
-2. Asla kesin tıbbi teşhis koyma, "Olabilir" de ve doktora yönlendir.
-3. İlaç sorulursa ne işe yaradığını basitçe anlat.
+1. Kısa, net ve anlaşılır cümleler kur ama samimide ol.
+2. Asla kesin tıbbi teşhis koyma ama fikirlerinide her zaman söyle, "Olabilir" de ve doktora yönlendir.
+3. İlaç sorulursa ne işe yaradığını anlat etken maddelerini bil ve yan etkilerini söyle.
+4. Kilosu olan insanlar için diyet programı oluştur.
+5. Chatgpt ve Geminideki gibi sıkıcı bir sağlık koçu olma daha dost canlısı ve bilgili ol.
 """
 
 # --- SOHBET GEÇMİŞİ ---
 if "messages" not in st.session_state:
     st.session_state.messages = []
-    # İlk mesajı biz ekranda gösterelim ama geçmişe eklemeyelim (Gemini mantığı farklı)
     with st.chat_message("assistant"):
         st.write("Merhaba! Ben Sağlık Koçunuz. Size nasıl yardımcı olabilirim?")
 
@@ -63,53 +74,44 @@ st.caption("Mikrofona basıp konuşabilir veya yazabilirsiniz.")
 
 user_input = None
 
-# 1. Sesli Giriş (Google Modeli sesi doğrudan dinleyebilir!)
+# 1. Sesli Giriş
 audio_value = st.audio_input("Mikrofonuna bas ve konuş")
 
 if audio_value:
-    # Sesi doğrudan alıyoruz
     user_input = "Lütfen bu ses kaydını dinle ve cevap ver."
     
 # 2. Yazılı Giriş
 chat_input = st.chat_input("Buraya yazın...")
 if chat_input:
     user_input = chat_input
-    audio_value = None # Yazı yazıldıysa sesi boşver
+    audio_value = None 
 
 # --- CEVAP VE KONUŞMA ---
 if user_input:
-    # Kullanıcı mesajını göster
     actual_text_to_show = chat_input if chat_input else "🎤 (Sesli Mesaj Gönderildi)"
     st.session_state.messages.append({"role": "user", "content": actual_text_to_show})
     with st.chat_message("user"):
         st.write(actual_text_to_show)
 
     with st.chat_message("assistant"):
-        with st.spinner("Google Sağlık Veritabanı taranıyor..."):
+        with st.spinner("Veritabanı taranıyor..."):
             try:
-                # Google Gemini'ye gönder (Ses varsa sesi, yoksa yazıyı)
                 chat = model.start_chat(history=[])
-                
-                # Sisteme kim olduğunu hatırlatıyoruz
                 full_prompt = system_prompt + "\n\nKullanıcı sorusu: " + str(user_input)
 
                 if audio_value:
-                    # Sesi okuyup Gemini'ye resim/dosya gibi gönderiyoruz
                     audio_data = audio_value.read()
                     response = model.generate_content([full_prompt, {"mime_type": "audio/wav", "data": audio_data}])
                 else:
-                    # Sadece yazı
                     response = model.generate_content(full_prompt)
 
                 ai_response = response.text
                 st.write(ai_response)
                 
-                # Sesi Hazırla (Ücretsiz gTTS kütüphanesi ile)
                 tts = gTTS(text=ai_response, lang='tr')
                 tts.save("cevap.mp3")
                 st.audio("cevap.mp3", autoplay=True)
 
-                # Hafızaya ekle
                 st.session_state.messages.append({"role": "assistant", "content": ai_response})
 
             except Exception as e:
